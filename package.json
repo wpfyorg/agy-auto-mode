@@ -1,7 +1,7 @@
 {
   "name": "agy-auto-mode",
   "version": "1.0.0",
-  "description": "Antigravity plugin — auto-approve safe tool calls using GPT-4o-mini",
+  "description": "Antigravity plugin — auto-approve safe tool calls using GPT-OSS 120B (Medium)",
   "main": "hook.js",
   "type": "module",
   "scripts": {
