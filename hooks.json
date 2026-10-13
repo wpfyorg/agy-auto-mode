@@ -1,0 +1,16 @@
+{
+  "agy-auto-mode": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node hook.js",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

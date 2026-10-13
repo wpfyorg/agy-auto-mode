@@ -1,0 +1,31 @@
+{
+  "name": "agy-auto-mode",
+  "version": "1.0.0",
+  "description": "Antigravity plugin — auto-approve safe tool calls using GPT-4o-mini",
+  "main": "hook.js",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/hook.test.js",
+    "lint": "npx eslint hook.js src/"
+  },
+  "keywords": [
+    "antigravity",
+    "agy",
+    "plugin",
+    "auto-approve",
+    "gpt",
+    "safety"
+  ],
+  "author": "ArnabXD",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ArnabXD/agy-auto-mode.git"
+  },
+  "dependencies": {
+    "openai": "^4.80.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
