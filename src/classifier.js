@@ -16,6 +16,8 @@ import {
   extractBaseCommand,
 } from "./lists.js";
 
+import { syncPermissionToSettings } from "./persister.js";
+
 /**
  * @param {{ name: string, args: Record<string, any> }} toolCall
  * @returns {Promise<{ decision: string, reason: string }>}
@@ -37,17 +39,24 @@ export async function classifyToolCall(toolCall) {
     }
   }
 
-  // If approved, inject permissionOverrides so Antigravity's permission manager
-  // auto-approves without prompting the user.
+  // If approved, inject permissionOverrides and sync to settings.json
+  // so Antigravity CLI's permission manager auto-approves without prompting.
   if (result.decision === "allow") {
+    result.allowTool = true;
+    result.allow_tool = true;
+
     if (name === "run_command") {
       const commandLine = (args?.CommandLine ?? args?.command ?? "").trim();
       const base = extractBaseCommand(commandLine);
+      const pattern = result.matchedPattern || base;
       const overrides = new Set([
         `command(${commandLine})`,
+        `command(${pattern})`,
         `command(${base})`,
       ]);
       result.permissionOverrides = Array.from(overrides);
+
+      syncPermissionToSettings(pattern);
     } else {
       result.permissionOverrides = [name];
     }
@@ -120,10 +129,18 @@ async function classifyCommand(commandLine) {
 
   for (const pattern of allAllowed) {
     if (base === pattern || normalizedCmd.startsWith(pattern)) {
-      return { decision: "allow", reason: `Allowlisted command: ${pattern}` };
+      return {
+        decision: "allow",
+        reason: `Allowlisted command: ${pattern}`,
+        matchedPattern: pattern,
+      };
     }
   }
 
   // ── GPT-OSS 120B (Medium) classification via Antigravity Subscription ─
-  return gptClassify(commandLine);
+  const gptResult = await gptClassify(commandLine);
+  if (gptResult.decision === "allow") {
+    gptResult.matchedPattern = base;
+  }
+  return gptResult;
 }
