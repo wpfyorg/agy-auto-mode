@@ -23,18 +23,37 @@ import {
 export async function classifyToolCall(toolCall) {
   const { name, args } = toolCall;
 
+  let result;
   // ── 1. Non-command tools ──────────────────────────────────────────────
   if (name !== "run_command") {
-    return classifyNonCommandTool(name, args);
+    result = classifyNonCommandTool(name, args);
+  } else {
+    // ── 2-4. Command classification ───────────────────────────────────────
+    const commandLine = args?.CommandLine ?? args?.command ?? "";
+    if (!commandLine) {
+      result = { decision: "ask", reason: "Empty command line" };
+    } else {
+      result = await classifyCommand(commandLine);
+    }
   }
 
-  // ── 2-4. Command classification ───────────────────────────────────────
-  const commandLine = args?.CommandLine ?? args?.command ?? "";
-  if (!commandLine) {
-    return { decision: "ask", reason: "Empty command line" };
+  // If approved, inject permissionOverrides so Antigravity's permission manager
+  // auto-approves without prompting the user.
+  if (result.decision === "allow") {
+    if (name === "run_command") {
+      const commandLine = (args?.CommandLine ?? args?.command ?? "").trim();
+      const base = extractBaseCommand(commandLine);
+      const overrides = new Set([
+        `command(${commandLine})`,
+        `command(${base})`,
+      ]);
+      result.permissionOverrides = Array.from(overrides);
+    } else {
+      result.permissionOverrides = [name];
+    }
   }
 
-  return classifyCommand(commandLine);
+  return result;
 }
 
 /**
