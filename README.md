@@ -1,11 +1,12 @@
 # agy-auto-mode
 
-An [Antigravity](https://antigravity.dev) plugin that uses **GPT-OSS 120B (Medium)** to automatically approve safe tool calls — so the agent doesn't pause for confirmation on harmless commands like `ls`, `cat`, or `npm test`.
+An [Antigravity](https://antigravity.dev) plugin that automatically approves safe tool calls using **GPT-OSS 120B (Medium)** — so the agent doesn't pause for confirmation on harmless commands like `ls`, `cat`, or `npm test`.
 
-Dangerous operations (`rm -rf /`, `curl | bash`, credential access, etc.) are still flagged for manual approval.
+Dangerous operations (`rm -rf /`, `curl | bash`, credential access, fork bombs, etc.) are always caught and flagged for manual approval or blocked.
 
 > [!TIP]
-> GPT-OSS 120B is OpenAI's open-weight reasoning model (Apache 2.0), included in the Antigravity subscription. Zero extra cost.
+> **No API key needed!**
+> GPT-OSS 120B (Medium) is an open-weight reasoning model (Apache 2.0) **included inside your Antigravity subscription**. The plugin invokes Antigravity's native model engine directly.
 
 ## How It Works
 
@@ -22,7 +23,8 @@ Dangerous operations (`rm -rf /`, `curl | bash`, credential access, etc.) are st
 │  1. Extract tool name + args from stdin                   │
 │  2. Check fast-path denylist (rm -rf /, dd, mkfs, …)      │
 │  3. Check fast-path allowlist (ls, cat, echo, …)          │
-│  4. If unclear → call GPT-OSS 120B (medium reasoning)     │
+│  4. If ambiguous → classify with GPT-OSS 120B (Medium)   │
+│     (included inside Antigravity subscription)           │
 │  5. Return { decision: "allow" | "ask" | "deny" }         │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -32,8 +34,7 @@ The plugin registers as a **PreToolUse** lifecycle hook. Every time Antigravity 
 ## Requirements
 
 - **Node.js** ≥ 18
-- An **OpenAI API key** (GPT-OSS 120B is included in the Antigravity subscription)
-- **Antigravity** CLI, IDE, or 2.0
+- **Antigravity** CLI (`agy`), IDE, or 2.0 (with active subscription)
 
 ## Installation
 
@@ -66,98 +67,81 @@ npm install
 
 ## Configuration
 
-Set your OpenAI API key as an environment variable:
+**Zero configuration required out of the box!** The plugin automatically uses `gpt-oss-120b-medium` via `agy` from your subscription.
 
-```bash
-export OPENAI_API_KEY="sk-..."
-```
+### Optional Environment Variables
 
-Optionally, create a `.env` file in the plugin directory:
-
-```env
-OPENAI_API_KEY=sk-...
-```
-
-### Advanced Configuration
-
-You can customise behaviour via environment variables:
+You can customise behavior via environment variables:
 
 | Variable | Default | Description |
 |---|---|---|
-| `OPENAI_API_KEY` | *(required)* | Your OpenAI API key |
-| `AGY_AUTO_MODEL` | `gpt-oss-120b` | Model to use for classification |
+| `AGY_AUTO_MODEL` | `gpt-oss-120b-medium` | Model to use for command classification |
 | `AGY_AUTO_REASONING_EFFORT` | `medium` | Reasoning effort: `low`, `medium`, or `high` |
-| `AGY_AUTO_TIMEOUT` | `10` | Timeout in seconds for the GPT call |
+| `AGY_AUTO_TIMEOUT` | `15` | Timeout in seconds for classification |
+| `AGY_AUTO_BACKEND` | `antigravity` | Engine backend: `antigravity` (default) or `openai` |
+| `OPENAI_API_KEY` | *(optional)* | Only needed if `AGY_AUTO_BACKEND=openai` |
 | `AGY_AUTO_LOG` | `false` | Set to `true` to write debug logs to `~/.agy-auto-mode.log` |
 | `AGY_AUTO_ALLOWLIST` | *(built-in)* | Comma-separated extra commands to always allow |
 | `AGY_AUTO_DENYLIST` | *(built-in)* | Comma-separated extra commands to always deny |
 
 ## How Classification Works
 
-### Fast-Path (no API call)
+### 1. Fast-Path Denylist (Checked First)
 
-The hook maintains built-in deny/allow lists for instant decisions. **Deny is always checked first** — so a command like `echo "..." && rm -rf /` is caught even though `echo` is allowlisted.
+**Deny patterns are always evaluated first** — so a command like `echo "..." && rm -rf /` is blocked immediately even though `echo` is allowlisted.
 
-**Always denied** (destructive / dangerous):
-`rm -rf /`, `rm -rf ~`, `mkfs`, `dd`, `:(){ :|:& };:`, `> /dev/sda`, `curl|bash`, `wget|bash`, credential/key exfiltration patterns, prompt injection attempts, …
+- Destructive filesystem commands: `rm -rf /`, `rm -rf ~`, `rm -rf *`
+- Disk overwrite: `dd of=/dev/sd*`, `mkfs`, `fdisk`, `parted`
+- Fork bombs: `:(){ :|:& };:`
+- Pipe from remote to shell: `curl ... | bash`, `wget ... | sh`
+- Credential exfiltration: reading `.ssh`, `.aws`, `.env`, tokens
+- Privilege escalation: `chmod -R 777`, `chown root`
+- Prompt injection guards in command text
 
-**Always allowed** (read-only / harmless):
-`ls`, `cat`, `head`, `tail`, `echo`, `pwd`, `whoami`, `date`, `wc`, `grep`, `find`, `which`, `file`, `tree`, `git status`, `git log`, `git diff`, `git branch`, `npm test`, `npm run lint`, `npx tsc --noEmit`, …
+### 2. Fast-Path Allowlist (Instant)
 
-### GPT-OSS Classification (fallback)
+Harmless, routine development commands are approved instantly without making an LLM call:
 
-Commands not caught by fast-path are sent to GPT-OSS 120B with **medium reasoning effort** and a strict system prompt. The model returns structured JSON:
+- Filesystem reads: `ls`, `cat`, `head`, `tail`, `wc`, `grep`, `rg`, `find`, `tree`, `which`
+- Git operations: `git status`, `git log`, `git diff`, `git branch`, `git show`, `git blame`
+- Development tool commands: `npm test`, `npm run lint`, `cargo test`, `cargo build`, `pytest`, `go test`
+- System info: `pwd`, `whoami`, `date`, `uname`
+
+### 3. GPT-OSS 120B (Medium) Classification (Ambiguous Commands)
+
+Any command that doesn't match either fast-path list is sent to **GPT-OSS 120B (Medium)** through your Antigravity subscription:
 
 ```json
 {
   "safe": true,
   "risk": "low",
-  "reasoning": "npm test runs the project's test suite in a sandbox"
+  "reason": "docker build builds a local container image"
 }
 ```
 
-- `safe: true` + `risk: "low"` → **auto-approve**
-- `safe: true` + `risk: "medium"` → **ask the user** (with reasoning shown)
-- `safe: false` → **deny** with explanation
+- `safe: true` + `risk: "low"` → **Auto-approved**
+- `safe: true` + `risk: "medium"` → **Asks the user** (reason shown)
+- `safe: false` → **Blocked** with explanation
+- Quota / Timeout / Error → Gracefully falls back to **asking the user**
 
-### Why GPT-OSS 120B?
+### 4. Non-Command Tools
 
-| Property | Value |
-|---|---|
-| Architecture | 117B-parameter Mixture-of-Experts (MoE) |
-| License | Apache 2.0 (open-weight) |
-| Reasoning | Configurable effort (`low`/`medium`/`high`) |
-| Cost | Included in Antigravity subscription |
-| Latency | Medium effort balances speed + accuracy for safety classification |
+- **Read-only tools** (`view_file`, `search_web`, `read_url_content`, etc.) → Always allowed
+- **Code editing tools** (`write_to_file`, `replace_file_content`) → Allowed (Antigravity previews diffs)
+- **Unknown tools** → Prompt user
 
-### Non-Command Tools
-
-For tools other than `run_command` (e.g., `view_file`, `replace_file_content`, `write_to_file`), the hook uses lightweight heuristics:
-
-- **Read-only tools** (`view_file`, `search_web`, etc.) → always allowed
-- **Write tools** → allowed (Antigravity already previews diffs)
-- **Unknown tools** → ask the user
-
-## Security Notes
+## Security & Reliability
 
 > [!CAUTION]
-> **Never rely solely on an LLM for security gating.** This plugin is a convenience layer, not a security boundary. The built-in deny-list catches known-dangerous patterns first. The GPT-OSS call is a best-effort fallback for ambiguous cases.
+> **Safety In Depth:** This plugin is designed to reduce confirmation fatigue for safe workflows while maintaining strong defenses. The deterministic deny-list runs before any LLM evaluation, and prompt injection attempts in command strings are blocked before reaching the model.
 
-- Commands containing prompt-injection patterns are auto-denied by the denylist before reaching GPT-OSS.
-- The plugin never executes commands itself — it only advises the agent.
-- Deny patterns are checked **before** allow patterns to prevent bypass.
-- All decisions are logged (when `AGY_AUTO_LOG=true`) for audit.
-
-## Development
+## Development & Testing
 
 ```bash
-# Run tests
+# Run tests (runs 29 tests covering fast-paths, edge cases, JSON parser)
 npm test
 
-# Lint
-npm run lint
-
-# Try the hook locally (pipe a sample payload)
+# Try the hook locally
 echo '{"toolCall":{"name":"run_command","args":{"CommandLine":"ls -la"}}}' | node hook.js
 ```
 

@@ -9,6 +9,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { extractBaseCommand, ALWAYS_ALLOW_COMMANDS, ALWAYS_DENY_PATTERNS } from "../src/lists.js";
 import { classifyToolCall } from "../src/classifier.js";
+import { parseModelJson } from "../src/gpt.js";
 
 describe("extractBaseCommand", () => {
   it("extracts simple commands", () => {
@@ -179,19 +180,54 @@ describe("classifyToolCall — edge cases", () => {
     assert.equal(result.decision, "ask");
   });
 
-  it("asks for ambiguous commands when no API key set", async () => {
-    // "docker run" is not in allow or deny lists, and no OPENAI_API_KEY
-    const original = process.env.OPENAI_API_KEY;
-    delete process.env.OPENAI_API_KEY;
+  it("falls back to asking user on ambiguous commands when classification fails or quotas trigger", async () => {
+    // When classification cannot auto-approve, it falls back to 'ask'
+    const originalBin = process.env.ANTIGRAVITY_AGENTAPI_EXE;
+    process.env.ANTIGRAVITY_AGENTAPI_EXE = "nonexistent-agy-bin";
 
     const result = await classifyToolCall({
       name: "run_command",
       args: { CommandLine: "docker run --rm -it ubuntu bash" },
     });
 
-    if (original) process.env.OPENAI_API_KEY = original;
+    if (originalBin) {
+      process.env.ANTIGRAVITY_AGENTAPI_EXE = originalBin;
+    } else {
+      delete process.env.ANTIGRAVITY_AGENTAPI_EXE;
+    }
 
     assert.equal(result.decision, "ask");
+  });
+});
+
+describe("parseModelJson helper", () => {
+  it("parses raw JSON", () => {
+    assert.deepEqual(parseModelJson('{"safe": true, "risk": "low"}'), {
+      safe: true,
+      risk: "low",
+    });
+  });
+
+  it("parses markdown fenced JSON", () => {
+    const raw = 'Here is the analysis:\n```json\n{"safe": false, "risk": "high"}\n```';
+    assert.deepEqual(parseModelJson(raw), {
+      safe: false,
+      risk: "high",
+    });
+  });
+
+  it("extracts JSON embedded in surrounding text", () => {
+    const raw = 'Result: {"safe": true, "risk": "medium", "reason": "ok"} Thank you.';
+    assert.deepEqual(parseModelJson(raw), {
+      safe: true,
+      risk: "medium",
+      reason: "ok",
+    });
+  });
+
+  it("returns null on invalid input", () => {
+    assert.equal(parseModelJson(""), null);
+    assert.equal(parseModelJson("Just plain text with no json"), null);
   });
 });
 

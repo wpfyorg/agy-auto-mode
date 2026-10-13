@@ -105,13 +105,6 @@ async function classifyCommand(commandLine) {
     }
   }
 
-  // ── GPT classification ──────────────────────────────────────────────
-  if (!process.env.OPENAI_API_KEY) {
-    return {
-      decision: "ask",
-      reason: "OPENAI_API_KEY not set — cannot classify; asking user",
-    };
-  }
-
+  // ── GPT-OSS 120B (Medium) classification via Antigravity Subscription ─
   return gptClassify(commandLine);
 }
