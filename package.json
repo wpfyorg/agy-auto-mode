@@ -20,7 +20,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ArnabXD/agy-auto-mode.git"
+    "url": "https://github.com/wpfyorg/agy-auto-mode.git"
   },
   "dependencies": {
     "openai": "^4.80.0"
