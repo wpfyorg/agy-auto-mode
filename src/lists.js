@@ -22,10 +22,18 @@ export const ALWAYS_ALLOW_TOOLS = new Set([
 
 // ─── Commands that are always safe (lowercased base command or prefix) ──────
 export const ALWAYS_ALLOW_COMMANDS = [
+  // CLI & core runner
+  "agy",
   // filesystem reads
   "ls",
   "ll",
   "la",
+  // file & directory management (safe operations)
+  "cp",
+  "mkdir",
+  "mv",
+  "touch",
+  // filesystem reads
   "cat",
   "head",
   "tail",
@@ -79,7 +87,7 @@ export const ALWAYS_ALLOW_COMMANDS = [
   "lsb_release",
   "nproc",
   "free",
-  // git (read-only)
+  // git operations
   "git status",
   "git log",
   "git diff",
@@ -87,15 +95,22 @@ export const ALWAYS_ALLOW_COMMANDS = [
   "git branch",
   "git tag",
   "git remote",
-  "git stash list",
+  "git stash",
   "git rev-parse",
   "git describe",
   "git shortlog",
   "git blame",
   "git ls-files",
   "git ls-tree",
-  "git config --list",
-  "git config --get",
+  "git config",
+  "git add",
+  "git commit",
+  "git push",
+  "git pull",
+  "git checkout",
+  "git switch",
+  "git merge",
+  "git fetch",
   // node / npm / yarn / pnpm (safe operations)
   "node --version",
   "npm --version",
@@ -236,6 +251,8 @@ export const ALWAYS_DENY_PATTERNS = [
 export function extractBaseCommand(commandLine) {
   const cleaned = commandLine
     .trim()
+    // Strip leading time
+    .replace(/^time\s+/i, "")
     // Strip leading env vars (KEY=val ...)
     .replace(/^(\s*[A-Z_][A-Z0-9_]*=[^\s]*\s+)+/i, "")
     // Strip leading sudo (including flags like -u <user>)

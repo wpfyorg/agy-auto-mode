@@ -43,7 +43,6 @@ export async function classifyToolCall(toolCall) {
   // so Antigravity CLI's permission manager auto-approves without prompting.
   if (result.decision === "allow") {
     result.allowTool = true;
-    result.allow_tool = true;
 
     if (name === "run_command") {
       const commandLine = (args?.CommandLine ?? args?.command ?? "").trim();
@@ -61,6 +60,9 @@ export async function classifyToolCall(toolCall) {
       result.permissionOverrides = [name];
     }
   }
+
+  // Protojson strictly rejects unknown fields — remove internal properties
+  delete result.matchedPattern;
 
   return result;
 }

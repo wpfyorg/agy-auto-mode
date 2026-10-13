@@ -70,24 +70,41 @@ export async function gptClassify(commandLine) {
   return classifyWithAntigravity(commandLine);
 }
 
+let gptOssQuotaUntil = 0;
+
 /**
  * Run classification via Antigravity CLI's included GPT-OSS 120B (Medium).
  */
-async function classifyWithAntigravity(commandLine) {
+async function classifyWithAntigravity(commandLine, overrideModel = null) {
   const agyBin = process.env.ANTIGRAVITY_AGENTAPI_EXE || "agy";
-  const model = process.env.AGY_AUTO_MODEL || "gpt-oss-120b-medium";
+  const configuredModel = process.env.AGY_AUTO_MODEL || "gpt-oss-120b-medium";
+  const fallbackModel = process.env.AGY_AUTO_FALLBACK_MODEL || "gemini-3.8-flash-low";
+
+  // If primary model previously hit quota, immediately use fallback model without delay
+  let model = overrideModel || configuredModel;
+  if (!overrideModel && model === "gpt-oss-120b-medium" && Date.now() < gptOssQuotaUntil) {
+    model = fallbackModel;
+  }
+
   const effort = process.env.AGY_AUTO_REASONING_EFFORT || "medium";
-  const timeoutSec = parseInt(process.env.AGY_AUTO_TIMEOUT ?? "15", 10);
+  const timeoutSec = parseInt(process.env.AGY_AUTO_TIMEOUT ?? "8", 10);
 
   const prompt = `${SYSTEM_PROMPT}\n\nCommand to analyze:\n\`\`\`\n${commandLine}\n\`\`\``;
 
   const args = [
     "--model", model,
-    "--effort", effort,
+  ];
+
+  // Only pass --effort if model name does not already embed an effort tier (e.g. -low, -medium, -high)
+  if (!/-low$|-medium$|-high$/i.test(model)) {
+    args.push("--effort", effort);
+  }
+
+  args.push(
     "-p", prompt,
     "--disable-slash-commands",
     "--print-timeout", `${timeoutSec}s`,
-  ];
+  );
 
   try {
     const { stdout } = await execFileAsync(agyBin, args, {
@@ -119,6 +136,13 @@ async function classifyWithAntigravity(commandLine) {
     const errText = (err.stderr || err.message || "").toString();
 
     if (errText.includes("quota") || errText.includes("429") || errText.includes("RESOURCE_EXHAUSTED")) {
+      if (model === "gpt-oss-120b-medium") {
+        gptOssQuotaUntil = Date.now() + 10 * 60 * 1000;
+      }
+      if (model !== fallbackModel) {
+        return classifyWithAntigravity(commandLine, fallbackModel);
+      }
+
       return {
         decision: "ask",
         reason: `Antigravity subscription quota reached for ${model} — asking user`,
